@@ -300,6 +300,207 @@ factory/
 
 ---
 
+### 4.2.1 How MQTT Publish/Subscribe Works — Deep Dive
+
+MQTT uses a **publish/subscribe (pub/sub)** messaging pattern. Understanding this is critical because it underpins the entire data pipeline in this project.
+
+#### The Three Roles in MQTT
+
+```
+  PUBLISHER              BROKER               SUBSCRIBER
+  (PLC Simulator)        (Mosquitto)          (Telegraf)
+
+  "I have data,          "I'll hold it        "Give me everything
+   send it to            and route it         on topic
+   topic factory/plc1"   to whoever           factory/plc1"
+                         is interested"
+```
+
+| Role | Component in This Project | Responsibility |
+|------|--------------------------|----------------|
+| **Publisher** | `plc_simulator.py` | Generates sensor data and sends it to a topic |
+| **Broker** | Mosquitto (Eclipse) | Receives published messages, matches them to subscriptions, forwards to subscribers |
+| **Subscriber** | Telegraf (`mqtt_consumer`) | Registers interest in a topic and receives all messages published to it |
+
+#### Step-by-Step — Tracing the Actual Code
+
+**File: `simulator/plc_simulator.py`**
+
+```python
+# STEP 1: Import the MQTT client library
+import paho.mqtt.client as mqtt
+
+# STEP 2: Create an MQTT client instance (this is the "publisher")
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+# STEP 3: Connect to the broker (Mosquitto container)
+client.connect("mosquitto", 1883, 60)
+#              ▲            ▲     ▲
+#              │            │     └── keepalive: "ping me every 60s to stay alive"
+#              │            └── port: standard MQTT port
+#              └── hostname: Docker DNS resolves "mosquitto" to the container's IP
+
+# STEP 4: Infinite loop — publish every 5 seconds
+while True:
+    payload = {
+        "temperature": random.randint(60, 95),
+        "pressure": random.randint(15, 35),
+        ...
+    }
+
+    # STEP 5: PUBLISH — this is the key line
+    client.publish("factory/plc1", json.dumps(payload))
+    #              ▲               ▲
+    #              │               └── message: JSON string (the actual data)
+    #              └── topic: the "address" or "channel" for this data
+
+    time.sleep(5)  # wait 5 seconds, then repeat
+```
+
+#### What Happens at the Network Level
+
+**Phase 1: Connection Establishment (one-time, at startup)**
+
+```
+  Simulator                          Mosquitto
+     │                                  │
+     │──── TCP SYN ────────────────────►│  Port 1883
+     │◄─── TCP SYN-ACK ───────────────│
+     │──── TCP ACK ────────────────────►│
+     │                                  │
+     │  TCP connection established      │
+     │                                  │
+     │──── MQTT CONNECT ──────────────►│  "Hi, I'm a client, let me in"
+     │     (client ID, keepalive=60)    │
+     │                                  │
+     │◄─── MQTT CONNACK ──────────────│  "OK, you're connected"
+     │     (return code: 0 = success)   │
+     │                                  │
+```
+
+**Phase 2: Publishing Messages (every 5 seconds, forever)**
+
+```
+  Simulator                          Mosquitto
+     │                                  │
+     │──── MQTT PUBLISH ──────────────►│
+     │     Topic: "factory/plc1"       │
+     │     Payload: {"temperature":78, │
+     │               "pressure":25,    │
+     │               "humidity":52,    │
+     │               "motor_rpm":2100, │
+     │               "vibration":2.34, │
+     │               "power_kw":98.76} │
+     │     QoS: 0 (fire and forget)    │
+     │                                  │
+     │  (no acknowledgment at QoS 0)   │
+     │                                  │
+     │     ... 5 seconds later ...      │
+     │                                  │
+     │──── MQTT PUBLISH ──────────────►│
+     │     Topic: "factory/plc1"       │
+     │     Payload: {"temperature":82, │
+     │               "pressure":28...} │
+     │                                  │
+     │     ... repeats forever ...      │
+```
+
+**Phase 3: Broker Routing to Subscriber (Telegraf)**
+
+Meanwhile, Telegraf has already subscribed to the same topic via its configuration:
+
+```toml
+# File: telegraf/telegraf.conf
+[[inputs.mqtt_consumer]]
+  servers = ["tcp://mosquitto:1883"]    # Connect to the same broker
+  topics = ["factory/plc1"]             # "I want messages from this topic"
+  data_format = "json"                  # "Parse the payload as JSON"
+```
+
+The complete message flow:
+
+```
+  Simulator                  Mosquitto                  Telegraf
+     │                          │                          │
+     │                          │◄── MQTT SUBSCRIBE ──────│
+     │                          │    topic: factory/plc1    │
+     │                          │                          │
+     │                          │──── MQTT SUBACK ────────►│
+     │                          │    "OK, you're           │
+     │                          │     subscribed"          │
+     │                          │                          │
+     │  MQTT PUBLISH            │                          │
+     │  topic: factory/plc1     │                          │
+     │  payload: {temp:78,...}  │                          │
+     │─────────────────────────►│                          │
+     │                          │                          │
+     │                          │  "Who's subscribed to    │
+     │                          │   factory/plc1?"         │
+     │                          │                          │
+     │                          │  → Telegraf is!          │
+     │                          │                          │
+     │                          │  MQTT PUBLISH (fan-out)  │
+     │                          │  topic: factory/plc1     │
+     │                          │  payload: {temp:78,...}  │
+     │                          │─────────────────────────►│
+     │                          │                          │
+     │                          │                  Parse JSON:
+     │                          │                  temp → mqtt_consumer_temperature = 78
+     │                          │                  pressure → mqtt_consumer_pressure = 25
+     │                          │                  humidity → mqtt_consumer_humidity = 52
+     │                          │                  motor_rpm → mqtt_consumer_motor_rpm = 2100
+     │                          │                  vibration → mqtt_consumer_vibration = 2.34
+     │                          │                  power_kw → mqtt_consumer_power_kw = 98.76
+     │                          │                          │
+```
+
+#### The Pub/Sub Pattern — Why It Matters
+
+The key design principle is that the **publisher doesn't know who's listening**, and the **subscriber doesn't know who's publishing**:
+
+```
+  WITHOUT Pub/Sub (direct connection):
+  ════════════════════════════════════
+  Simulator ──────► Telegraf          Simulator MUST know Telegraf's address
+                                      If Telegraf dies, Simulator breaks
+                                      Adding a new consumer = code change
+
+
+  WITH Pub/Sub (MQTT broker in the middle):
+  ═════════════════════════════════════════
+  Simulator ──► Mosquitto ──► Telegraf         Simulator only knows the broker
+                          ──► Future App       Adding new consumers = zero code changes
+                          ──► Future DB        Simulator doesn't know or care who reads
+                          ──► Future Alert Svc
+
+  If Telegraf dies:  Simulator keeps publishing (no error, no impact)
+  If Simulator dies: Telegraf keeps running (just no new data arriving)
+  If Mosquitto dies: Both sides reconnect automatically when it's back
+```
+
+This **decoupling** is why MQTT is the dominant protocol in IoT — producers and consumers are completely independent of each other.
+
+#### MQTT Concept Reference
+
+| Concept | In This Project | What It Does |
+|---------|----------------|-------------|
+| **Client** | `mqtt.Client()` in `plc_simulator.py` | Creates an MQTT publisher instance |
+| **Connect** | `client.connect("mosquitto", 1883, 60)` | Opens a persistent TCP connection to the broker |
+| **Topic** | `"factory/plc1"` | A named channel — like a TV channel or a mailbox address |
+| **Payload** | `json.dumps(payload)` | The actual data being sent (serialized as a JSON string) |
+| **Publish** | `client.publish(topic, payload)` | Sends one message to the broker on the specified topic |
+| **Subscribe** | Telegraf's `topics = ["factory/plc1"]` | Registers interest in a topic — "send me everything on this channel" |
+| **QoS 0** | Default (not explicitly set) | "Fire and forget" — no delivery confirmation, fastest |
+| **QoS 1** | Not used yet | "At least once" — broker confirms delivery, may duplicate |
+| **QoS 2** | Not used yet | "Exactly once" — guaranteed single delivery, slowest |
+| **Broker** | Mosquitto container | The central hub that receives, routes, and delivers messages |
+| **Keepalive** | `60` seconds | Client pings the broker every 60s to keep the connection alive |
+
+> [!NOTE]
+> **Why QoS 0 is acceptable for this project**: In real-time monitoring, a missing data point every few hours is tolerable — the next reading arrives 5 seconds later. QoS 0 provides the lowest latency and least overhead. For critical alerts or commands (e.g., emergency stops), QoS 1 or 2 should be used.
+
+---
+
 ### 4.3 Telegraf (Metrics Bridge)
 
 | Property | Value |
