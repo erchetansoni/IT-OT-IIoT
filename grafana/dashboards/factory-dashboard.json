@@ -1,0 +1,269 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "panels": [
+        {
+            "id": 1,
+            "title": "Temperature",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_temperature"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "celsius",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 75
+                            },
+                            {
+                                "color": "red",
+                                "value": 85
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "id": 2,
+            "title": "Pressure",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 6,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_pressure"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "psi",
+                    "min": 0,
+                    "max": 50
+                }
+            }
+        },
+        {
+            "id": 3,
+            "title": "Humidity",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_humidity"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                }
+            }
+        },
+        {
+            "id": 4,
+            "title": "Motor RPM",
+            "type": "gauge",
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 18,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_motor_rpm"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "rpm",
+                    "min": 0,
+                    "max": 3000
+                }
+            }
+        },
+        {
+            "id": 5,
+            "title": "Temperature Trend",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 10,
+                "w": 12,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_temperature"
+                }
+            ],
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "last",
+                        "min",
+                        "max",
+                        "mean"
+                    ]
+                }
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "celsius"
+                }
+            }
+        },
+        {
+            "id": 6,
+            "title": "Pressure Trend",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 10,
+                "w": 12,
+                "x": 12,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_pressure"
+                }
+            ],
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "last",
+                        "min",
+                        "max",
+                        "mean"
+                    ]
+                }
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "psi"
+                }
+            }
+        },
+        {
+            "id": 7,
+            "title": "Humidity Trend",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 10,
+                "w": 12,
+                "x": 0,
+                "y": 18
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_humidity"
+                }
+            ],
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "last",
+                        "min",
+                        "max",
+                        "mean"
+                    ]
+                }
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent"
+                }
+            }
+        },
+        {
+            "id": 8,
+            "title": "Motor RPM Trend",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 10,
+                "w": 12,
+                "x": 12,
+                "y": 18
+            },
+            "targets": [
+                {
+                    "expr": "mqtt_consumer_motor_rpm"
+                }
+            ],
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": [
+                        "last",
+                        "min",
+                        "max",
+                        "mean"
+                    ]
+                }
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "rpm"
+                }
+            }
+        }
+    ],
+    "refresh": "5s",
+    "schemaVersion": 41,
+    "tags": [
+        "factory",
+        "mqtt",
+        "prometheus",
+        "industrial"
+    ],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-15m",
+        "to": "now"
+    },
+    "timezone": "browser",
+    "title": "Factory Metrics Dashboard",
+    "version": 1
+}
